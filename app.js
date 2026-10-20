@@ -1,17 +1,12 @@
 'use strict';
-const KEY='cmbrasil_preventiva_v1';
-const DEFAULT='Olá, *{primeiro_nome}*! 😊\n\nPassando para lembrar que sua parcela junto à *CMBrasil – Casa do Microcrédito* vence hoje, *{data}*.\n\nPara evitar encargos por atraso, orientamos que realize o pagamento até o final do dia.\n\nCaso já tenha efetuado o pagamento, desconsidere esta mensagem.\n\nAgradecemos sua parceria!\n*CMBrasil Imperatriz*';
 const $=id=>document.getElementById(id);
-const load=()=>{try{return JSON.parse(localStorage.getItem(KEY))||{clients:[],template:DEFAULT}}catch{return{clients:[],template:DEFAULT}}};
-let state=load();if(!Array.isArray(state.clients))state.clients=[];
-if(typeof state.template!=='string')state.template=DEFAULT;
-const save=()=>localStorage.setItem(KEY,JSON.stringify(state));
+const DEFAULT='Olá, *{nome}*!\n\nPassando para lembrar que sua parcela junto à *CMBrasil – Casa do Microcrédito* vence em *{data}*.\n\nCaso já tenha efetuado o pagamento, desconsidere esta mensagem.\n\nAgradecemos sua parceria!\n*CMBrasil Imperatriz*';
 const money=n=>Number(n||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
 const num=s=>Number((s||'0').replace(/\./g,'').replace(',','.'));
-const escapeHTML=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const escapeHTML=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const fullDate=s=>s&&/^\d{2}\/\d{2}\/\d{2}$/.test(s)?s.slice(0,6)+'20'+s.slice(6):s;
 const normalizedPhone=s=>{let p=String(s||'').replace(/\D/g,'');if(p.length===11||p.length===10)p='55'+p;return /^55\d{10,11}$/.test(p)?p:''};
-function warn(message){$('warning').hidden=!message;$('warning').textContent=message||''}
+
 function lineText(items){const lines=[];for(const it of items){if(!it.str||!it.str.trim())continue;const y=Math.round((it.transform?.[5]||0)*2)/2;let l=lines.find(x=>Math.abs(x.y-y)<2);if(!l){l={y,items:[]};lines.push(l)}l.items.push({x:it.transform?.[4]||0,text:it.str})}return lines.sort((a,b)=>b.y-a.y).map(l=>l.items.sort((a,b)=>a.x-b.x).map(i=>i.text).join(' ').replace(/\s+/g,' ').trim()).join('\n')}
 function parseReport(text){
  const dates=[...text.matchAll(/Vencimento:\s*(\d{2}\/\d{2}\/\d{4})\s+a\s+(\d{2}\/\d{2}\/\d{4})/g)];
@@ -45,33 +40,107 @@ function parseReport(text){
  }
  return {clients,agent,expectedClients,expectedDocs,expectedAmount,range:dates[0]?.slice(1,3)||[]};
 }
-async function importPDF(file){if(!file)return;warn('');$('status').textContent='Lendo PDF...';try{
- if(!window.pdfjsLib)throw Error('Leitor PDF indisponível. Conecte-se à internet e tente novamente.');
- pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
- const pdf=await pdfjsLib.getDocument({data:await file.arrayBuffer()}).promise;let text='';
- for(let p=1;p<=pdf.numPages;p++){const page=await pdf.getPage(p);text+='\n'+lineText((await page.getTextContent()).items)}
- const report=parseReport(text);const docs=report.clients.reduce((a,c)=>a+c.docs.length,0);
- const amount=report.clients.reduce((a,c)=>a+c.amount,0);
- if(!report.expectedClients||!report.expectedDocs||!report.expectedAmount)throw Error('Resumo Geral não encontrado ou incompleto. Confira se o PDF é o relatório Carteira por Agente.');
- if(report.clients.length!==report.expectedClients||docs!==report.expectedDocs||Math.abs(amount-report.expectedAmount)>0.02){
-  throw Error(`Conferência divergente. Extraído: ${report.clients.length} clientes, ${docs} documentos, ${money(amount)}. PDF: ${report.expectedClients} clientes, ${report.expectedDocs} documentos, ${money(report.expectedAmount)}. Nenhum dado foi substituído.`);
+const Preventiva=(()=>{
+ const codes=['XAMA1','XAMA2','XAMA3','XAMA4','XAMA6'];
+ let profile=null,cycle=null,clients=[],staged=new Map(),template=DEFAULT,started=false,epoch=0;
+ const warn=s=>{$('warning').hidden=!s;$('warning').textContent=s||''};
+ const check=(data,error)=>{if(error)throw Error(error.message||'Falha na consulta Supabase');return data};
+ const dateBR=s=>s?new Date(s+'T12:00:00').toLocaleDateString('pt-BR'):'—';
+ const role=()=>profile?.papel;
+ function render(){
+  const cartera=$('filter-carteira').value,filter=$('filter-status').value,q=$('search').value.toLocaleLowerCase('pt-BR');
+  const base=clients.filter(c=>cartera==='all'||c.carteira===cartera);
+  const shown=base.filter(c=>(c.nome+' '+c.cidade+' '+c.codigo).toLocaleLowerCase('pt-BR').includes(q)).filter(c=>filter==='all'||(filter==='opened'?!!c.aberto_em:filter==='pending'?!c.aberto_em:!c.telefone));
+  $('n-clients').textContent=base.length;$('n-opened').textContent=base.filter(c=>c.aberto_em).length;
+  $('n-pending').textContent=base.filter(c=>!c.aberto_em).length;$('n-missing').textContent=base.filter(c=>!c.telefone).length;
+  $('n-rate').textContent=(base.length?Math.round(100*base.filter(c=>c.aberto_em).length/base.length):0)+'%';
+  $('cycle-label').textContent=cycle?'Vencimento '+dateBR(cycle.vencimento):'Nenhum ciclo publicado';
+  $('cycle-updated').textContent=cycle?'Publicado em '+new Date(cycle.publicado_em).toLocaleString('pt-BR'):'Aguardando publicação';
+  $('list-meta').textContent=base.length+' clientes visíveis • '+shown.length+' na busca';
+  $('list').innerHTML=shown.length?shown.map(c=>`<article class="client"><div><h4>${escapeHTML(c.nome)}</h4><div class="detail">${escapeHTML(c.carteira)} · ${escapeHTML(c.cidade||'Cidade não informada')} · Venc. ${escapeHTML(c.vencimento)} · ${money(c.valor)} · ${c.documentos} documento(s)</div><div class="detail">${c.telefone?'+'+escapeHTML(c.telefone):'Sem telefone'} · <span class="tag ${c.aberto_em?'opened':''}">${c.aberto_em?'WhatsApp aberto em '+new Date(c.aberto_em).toLocaleString('pt-BR'):'Sem ação'}</span></div></div><button class="wa" data-open="${c.id}" ${!c.telefone?'disabled':''}>Abrir WhatsApp ↗</button></article>`).join(''):'<p class="empty">Nenhum cliente encontrado.</p>';
+  $('list').querySelectorAll('[data-open]').forEach(b=>b.addEventListener('click',()=>openWhatsApp(b.dataset.open)));
  }
- const previous=new Map(state.clients.map(c=>[c.id,c]));
- state.clients=report.clients.map(c=>{const old=previous.get(c.id);return old?{...c,status:old.status,lastOpen:old.lastOpen,markedAt:old.markedAt}:c});
- state.report={name:file.name,agent:report.agent,range:report.range,loadedAt:new Date().toISOString(),clients:report.expectedClients,docs:report.expectedDocs,amount:report.expectedAmount};
- save();render();$('status').textContent='Importação concluída: '+report.expectedClients+' clientes, '+report.expectedDocs+' documentos.';
- }catch(err){$('status').textContent='Não foi possível importar.';warn(err.message||String(err))}finally{$('pdf').value=''}}
-function message(c){const first=c.name.trim().split(/\s+/)[0];return state.template.replace(/\{nome\}/gi,c.name).replace(/\{primeiro_nome\}/gi,first).replace(/\{data\}/gi,c.due).replace(/\{valor\}/gi,money(c.amount))}
-function openWhatsApp(id){const c=state.clients.find(x=>x.id===id);if(!c||!c.phone)return;const url='https://wa.me/'+c.phone+'?text='+encodeURIComponent(message(c));c.lastOpen=new Date().toISOString();save();render();const w=window.open(url,'_blank','noopener,noreferrer');if(!w)location.href=url}
-function setStatus(id,status){const c=state.clients.find(x=>x.id===id);if(!c)return;c.status=status;c.markedAt=new Date().toISOString();save();render()}
-function render(){const cs=state.clients;const pending=cs.filter(c=>c.status==='pending');$('nClients').textContent=cs.length;$('nPending').textContent=pending.length;$('nSent').textContent=cs.filter(c=>c.status==='sent').length;$('nMissing').textContent=cs.filter(c=>!c.phone).length;$('nAmount').textContent=money(cs.reduce((a,c)=>a+c.amount,0));$('meta').textContent=state.report?`${state.report.agent} • ${state.report.range?.join(' a ')||''} • ${state.report.docs} documentos • ${state.report.name}`:'Importe um relatório para começar.';
- const query=$('search').value.toLocaleLowerCase('pt-BR');const filter=$('filter').value;
- const shown=cs.filter(c=>(c.name+' '+c.city+' '+c.code).toLocaleLowerCase('pt-BR').includes(query)).filter(c=>filter==='all'||(filter==='missing'?!c.phone:c.status===filter));
- $('list').innerHTML=shown.length?shown.map(c=>`<div class="client"><div><h4>${escapeHTML(c.name)}</h4><div class="detail">${escapeHTML(c.city||'Cidade não informada')} • ${escapeHTML(c.agent)} • Venc. ${escapeHTML(c.due)} • <b>${money(c.amount)}</b></div><div class="detail">${c.phone?escapeHTML('+'+c.phone):'Sem telefone do cliente'} • ${c.docs.length} parcela(s) • <span class="tag ${c.status==='sent'?'sent':c.status==='skip'?'skip':''}">${{pending:'Pendente',sent:'Marcado enviado',skip:'Não enviar'}[c.status]||'Pendente'}</span>${c.lastOpen?' • WhatsApp aberto anteriormente':''}</div></div><div class="client-actions"><button class="wa" data-open="${escapeHTML(c.id)}" ${!c.phone||c.status==='skip'?'disabled':''}>WhatsApp ↗</button><button data-mark="${escapeHTML(c.id)}" data-value="sent">Marcar enviado</button><button data-mark="${escapeHTML(c.id)}" data-value="skip">Não enviar</button><button data-mark="${escapeHTML(c.id)}" data-value="pending">Reabrir</button></div></div>`).join(''):'<p class="empty">Nenhum cliente encontrado.</p>';
- document.querySelectorAll('[data-open]').forEach(el=>el.onclick=()=>openWhatsApp(el.dataset.open));document.querySelectorAll('[data-mark]').forEach(el=>el.onclick=()=>setStatus(el.dataset.mark,el.dataset.value));
-}
-$('pdf').onchange=e=>importPDF(e.target.files[0]);$('search').oninput=render;$('filter').onchange=render;$('template').value=state.template;$('template').oninput=e=>{state.template=e.target.value;save()};$('reset').onclick=()=>{if(confirm('Restaurar o texto padrão?')){state.template=DEFAULT;$('template').value=DEFAULT;save()}};
-$('backup').onclick=()=>{const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='CMBrasil_Preventiva_backup_'+new Date().toISOString().slice(0,10)+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)};
-$('restore').onchange=async e=>{const file=e.target.files[0];if(!file)return;try{const data=JSON.parse(await file.text());if(!Array.isArray(data.clients)||typeof data.template!=='string')throw Error('Backup inválido.');if(!confirm('Substituir os dados atuais pelos do backup?'))return;state=data;save();$('template').value=state.template;warn('');render()}catch(err){warn(err.message)}finally{e.target.value=''}};
-if('serviceWorker'in navigator)navigator.serviceWorker.register('./service-worker.js').catch(()=>{});
-render();
+ async function refresh(){
+  const e=epoch;
+  const [cy,cl]=await Promise.all([supabaseClient.from('p2_ciclos').select('id,vencimento,publicado_em').limit(1).maybeSingle(),supabaseClient.from('p2_clientes').select('id,carteira,codigo,nome,cidade,telefone,vencimento,valor,documentos,aberto_em').order('nome').limit(10000)]);
+  check(cy.data,cy.error);check(cl.data,cl.error);
+  if(e!==epoch)return;
+  cycle=cy.data;clients=cl.data||[];render();
+ }
+ function message(c){return template.replace(/\{nome\}/gi,c.nome).replace(/\{primeiro_nome\}/gi,c.nome.split(/\s+/)[0]).replace(/\{data\}/gi,c.vencimento).replace(/\{valor\}/gi,money(c.valor))}
+ async function openWhatsApp(id){
+  const c=clients.find(x=>x.id===id);if(!c||!c.telefone)return;
+  const b=$('list').querySelector(`[data-open="${id}"]`);if(b)b.disabled=true;
+  // Abrir janela imediatamente no clique evita bloqueio de pop-up após requisição assíncrona.
+  const tab=window.open('about:blank','_blank');
+  try{
+   if(!tab)throw Error('Permita janelas pop-up para abrir o WhatsApp. Nenhuma abertura foi registrada.');
+   const {error}=await supabaseClient.rpc('p2_registrar_abertura',{p_cliente_id:id});
+   if(error)throw Error(error.message);
+   const url='https://wa.me/'+c.telefone+'?text='+encodeURIComponent(message(c));
+   tab.location.replace(url);
+   c.aberto_em=c.aberto_em||new Date().toISOString();render();warn('');
+  }catch(e){if(tab&&!tab.closed)tab.close();warn('WhatsApp não aberto: '+e.message);}finally{if(b)b.disabled=false;}
+ }
+ async function importPDF(file){
+  if(!file)return;const carteira=$('upload-carteira').value;warn('');$('import-status').textContent='Conferindo '+file.name+'...';
+  try{
+   if(role()!=='admin')throw Error('Somente administrador pode importar');
+   if(!window.pdfjsLib)throw Error('Leitor PDF indisponível. Confira sua internet.');
+   pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+   const pdf=await pdfjsLib.getDocument({data:await file.arrayBuffer()}).promise;let text='';
+   for(let p=1;p<=pdf.numPages;p++){const page=await pdf.getPage(p);text+='\n'+lineText((await page.getTextContent()).items);}
+   const report=parseReport(text),docs=report.clients.reduce((s,c)=>s+c.docs.length,0),amount=report.clients.reduce((s,c)=>s+c.amount,0);
+   if(!report.expectedClients||!report.expectedDocs||!report.expectedAmount)throw Error('Resumo Geral não encontrado ou incompleto.');
+   if(report.clients.length!==report.expectedClients||docs!==report.expectedDocs||Math.abs(amount-report.expectedAmount)>0.02)
+    throw Error(`Conferência divergente. Extraído: ${report.clients.length} clientes, ${docs} documentos, ${money(amount)}. PDF: ${report.expectedClients} clientes, ${report.expectedDocs} documentos, ${money(report.expectedAmount)}. Nenhum dado foi substituído.`);
+   const agentCode=(report.agent.match(/XAMA\d+/i)||[])[0]?.toUpperCase();
+   if(agentCode&&agentCode!==carteira)throw Error('O PDF identifica '+agentCode+', mas foi selecionada '+carteira);
+   const due=$('cycle-date').value;if(!due||![1,5,10,15,20].includes(Number(due.slice(8,10))))throw Error('Selecione a data de vencimento (dias 1, 5, 10, 15 ou 20).');
+   const dates=report.clients.flatMap(c=>c.docs.map(d=>d.due));
+   const dueBR=dateBR(due);
+   if(dates.some(d=>d!==dueBR))throw Error('O PDF contém vencimentos diferentes de '+dueBR+'. Confirme a data e use o relatório do ciclo correto.');
+   staged.set(carteira,{file:file.name,clients:report.clients.map(c=>({carteira,codigo:c.code,nome:c.name,cidade:c.city||'',telefone:c.phone||'',vencimento:c.due,valor:c.amount,documentos:c.docs.length})),docs,amount,due});
+   $('import-status').textContent='PDF validado: '+file.name+' · '+report.expectedClients+' clientes.';renderStaged();
+  }catch(e){$('import-status').textContent='Importação não validada.';warn(e.message);}finally{$('pdf').value='';}
+ }
+ function renderStaged(){
+  const date=$('cycle-date').value;
+  $('staged-list').innerHTML=codes.map(code=>{const s=staged.get(code);return `<span>${code}: ${s&&s.due===date?s.clients.length+' clientes ✓':'aguardando PDF'}</span>`}).join('');
+  $('publish').disabled=!(role()==='admin'&&codes.every(c=>staged.get(c)?.due===date));
+ }
+ async function publish(){
+  if(role()!=='admin'||$('publish').disabled)return;
+  const date=$('cycle-date').value,rows=codes.flatMap(c=>staged.get(c)?.clients||[]);
+  if(!confirm(`PUBLICAR ${dateBR(date)}?\n\n${rows.length} clientes das cinco carteiras.\nTODOS os clientes, pendências e registros de abertura do ciclo anterior serão excluídos.\n\nEsta operação não pode ser desfeita.`))return;
+  $('publish').disabled=true;warn('');$('import-status').textContent='Publicando ciclo no Supabase...';
+  try{
+   const {data,error}=await supabaseClient.rpc('p2_publicar_ciclo',{p_vencimento:date,p_clientes:rows});
+   check(data,error);staged.clear();renderStaged();await refresh();$('import-status').textContent=`Novo ciclo publicado com sucesso: ${data.publicados} clientes.`;
+  }catch(e){warn('Publicação não concluída: '+e.message+'. O ciclo anterior foi preservado se a transação falhou.');$('import-status').textContent='Falha na publicação.';renderStaged();}
+ }
+ function setup(){if(started)return;started=true;
+  $('pdf').addEventListener('change',e=>importPDF(e.target.files[0]));
+  $('cycle-date').addEventListener('change',()=>{renderStaged();});
+  $('publish').addEventListener('click',publish);
+  $('search').addEventListener('input',render);$('filter-status').addEventListener('change',render);$('filter-carteira').addEventListener('change',render);
+  $('refresh').addEventListener('click',()=>refresh().catch(e=>warn('Atualização não concluída: '+e.message)));
+  $('template').value=template;
+  $('template').addEventListener('input',e=>{template=e.target.value;localStorage.setItem('p2_template',template)});
+  $('reset-template').addEventListener('click',()=>{template=DEFAULT;$('template').value=DEFAULT;localStorage.setItem('p2_template',template)});
+ }
+ async function start(){
+  warn('');const {data,error}=await supabaseClient.rpc('p2_meu_acesso');check(data,error);
+  if(!data||!data.ativo)throw Error('Usuário sem perfil autorizado na Preventiva 2.0. Solicite liberação ao administrador.');
+  profile=data;epoch++;
+  template=localStorage.getItem('p2_template')||DEFAULT;
+  setup();$('template').value=template;
+  $('user-label').textContent=profile.nome;
+  $('role-label').textContent=profile.papel==='admin'?'Administrador':'Agente · '+profile.carteira;
+  $('admin-section').hidden=role()!=='admin';$('filter-carteira').hidden=role()!=='admin';
+  $('filter-carteira').value=role()==='admin'?'all':profile.carteira;
+  await refresh();
+ }
+ function clear(){profile=null;cycle=null;clients=[];staged.clear();epoch++;}
+ return {start,clear};
+})();
