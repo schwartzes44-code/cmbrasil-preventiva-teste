@@ -19,3 +19,6 @@ async function diagnosticarConexao(){
  catch(err){return 'Conexão não concluída ('+(err?.name==='AbortError'?'tempo esgotado':(err?.name||'falha de rede'))+'). Verifique DNS, antivírus ou bloqueadores.';}
  finally{clearTimeout(timeout);}
 }
+
+async function solicitarRecuperacao(email){const {error}=await supabaseClient.auth.resetPasswordForEmail(email.trim(),{redirectTo:'https://schwartzes44-code.github.io/cmbrasil-preventiva-teste/'});if(error)throw Error(explicarErroAutenticacao(error));}
+async function atualizarSenha(senha){const {error}=await supabaseClient.auth.updateUser({password:senha});if(error)throw Error(explicarErroAutenticacao(error));}
