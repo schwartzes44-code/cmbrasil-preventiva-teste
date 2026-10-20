@@ -1,0 +1,17 @@
+CMBrasil Preventiva v1.0
+
+1. Crie um repositório GitHub público, por exemplo cmbrasil-preventiva.
+2. Envie TODOS os arquivos desta pasta para a raiz do repositório.
+3. Em Settings > Pages, publique a branch main / (root).
+4. Abra o endereço HTTPS do GitHub Pages para importar os relatórios.
+5. É necessário acesso à internet na primeira utilização do leitor PDF.js.
+
+IMPORTANTE:
+- Os dados dos clientes ficam somente no navegador local (localStorage). Faça backup JSON regularmente.
+- A importação exige que o total de clientes, documentos e Valor Receber coincida com o resumo do PDF.
+- A importação substitui a lista do relatório anterior; exporte backup antes de trocar de carteira/data.
+- O botão WhatsApp abre a conversa com a mensagem pronta. O usuário deve apertar ENVIAR no WhatsApp.
+- O status Enviado é registrado manualmente, sem confirmação automática do WhatsApp.
+- Não há disparo em massa nem integração com a API oficial.
+- Não utilize repositório público para armazenar PDFs ou dados de clientes. Os PDFs devem ser importados localmente.
+- O uso do sistema exige conferência humana de telefones, valores e mensagem antes do envio.

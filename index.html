@@ -1,0 +1,43 @@
+<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#171d26"><link rel="manifest" href="manifest.webmanifest"><link rel="icon" href="icon.svg"><title>CMBrasil Preventiva</title><link rel="stylesheet" href="styles.css?v=1"></head><body> 
+<section id="tela-login" class="tela-login" hidden>
+  <div class="login-card">
+    <div class="login-logo">CM</div>
+
+    <h2>CMBrasil Preventiva 2.0</h2>
+    <p>Acesso exclusivo para colaboradores</p>
+
+    <form id="form-login">
+      <label for="login-email">E-mail</label>
+      <input
+        type="email"
+        id="login-email"
+        placeholder="Digite seu e-mail"
+        autocomplete="username"
+        required
+      >
+
+      <label for="login-senha">Senha</label>
+      <input
+        type="password"
+        id="login-senha"
+        placeholder="Digite sua senha"
+        autocomplete="current-password"
+        required
+      >
+
+      <button type="submit" id="btn-entrar">
+        Entrar
+      </button>
+
+      <p id="login-erro" role="alert"></p>
+    </form>
+  </div>
+</section>
+<main hidden><header><div class="logo">CM</div><div><h1>CMBrasil <span>Preventiva</span></h1><small>FRANQUIA IMPERATRIZ · COBRANÇA PREVENTIVA</small></div></header><section class="hero"><div><p class="eyebrow">GESTÃO DE VENCIMENTOS</p><h2>Um lembrete certo.<br><span>Na hora certa.</span></h2><p>Importe o PDF, confira os clientes e abra mensagens personalizadas no WhatsApp.</p></div><div class="import"><label class="primary" for="pdf">Importar relatório PDF</label><input type="file" id="pdf" accept=".pdf,application/pdf"><p id="status">Aguardando relatório.</p><button id="backup">Exportar backup</button><label class="restore">Restaurar backup <input type="file" id="restore" accept=".json"></label></div></section><div id="warning" class="warning" hidden></div><section class="stats"><article><small>Clientes</small><strong id="nClients">0</strong></article><article><small>Pendentes</small><strong id="nPending">0</strong></article><article><small>Enviados*</small><strong id="nSent">0</strong></article><article><small>Sem telefone</small><strong id="nMissing">0</strong></article><article><small>Valor a receber</small><strong id="nAmount">R$ 0,00</strong></article></section><section class="panel"><div class="heading"><div><h3>Mensagem padrão</h3><p>Campos disponíveis: {nome}, {primeiro_nome}, {data}, {valor}.</p></div><button id="reset">Restaurar mensagem</button></div><textarea id="template" rows="6"></textarea><small>O envio é individual e precisa ser confirmado no WhatsApp. *Enviado é uma marcação manual, não uma confirmação do WhatsApp.</small></section><section class="panel"><div class="heading"><div><h3>Clientes do relatório</h3><p id="meta">Importe um relatório para começar.</p></div><div class="filters"><input id="search" placeholder="Buscar nome ou cidade"><select id="filter"><option value="all">Todos</option><option value="pending">Pendentes</option><option value="sent">Marcados enviados</option><option value="missing">Sem telefone</option><option value="skip">Não enviar</option></select></div></div><div id="list" class="list"><p class="empty">Nenhum cliente importado.</p></div></section><footer>Dados salvos neste navegador. Faça backups frequentes. Não há envio automático ou em massa.</footer></main><script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="supabase-config.js"></script>
+<script src="auth.js"></script>
+<script src="app.js?v=1"></script>
+<script src="login-controller.js"></script>
+</body>
+</html>
