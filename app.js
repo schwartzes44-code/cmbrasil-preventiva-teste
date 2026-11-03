@@ -107,12 +107,12 @@ const Preventiva=(()=>{
  function renderStaged(){
   const date=$('cycle-date').value;
   $('staged-list').innerHTML=codes.map(code=>{const s=staged.get(code);return `<span>${code}: ${s&&s.due===date?s.clients.length+' clientes ✓':'aguardando PDF'}</span>`}).join('');
-  $('publish').disabled=!(role()==='admin'&&codes.every(c=>staged.get(c)?.due===date));
+  $('publish').disabled=!(role()==='admin'&&Boolean(date)&&codes.some(c=>staged.get(c)?.due===date&&staged.get(c)?.clients?.length>0));
  }
  async function publish(){
   if(role()!=='admin'||$('publish').disabled)return;
-  const date=$('cycle-date').value,rows=codes.flatMap(c=>staged.get(c)?.clients||[]);
-  if(!confirm(`PUBLICAR ${dateBR(date)}?\n\n${rows.length} clientes das cinco carteiras.\nTODOS os clientes, pendências e registros de abertura do ciclo anterior serão excluídos.\n\nEsta operação não pode ser desfeita.`))return;
+  const date=$('cycle-date').value,selected=codes.filter(c=>staged.get(c)?.due===date&&staged.get(c)?.clients?.length>0),rows=selected.flatMap(c=>staged.get(c).clients);
+  if(!confirm(`PUBLICAR ${dateBR(date)}?\n\n${rows.length} clientes de ${selected.length} carteira(s): ${selected.join(', ')}.\nTODOS os clientes, pendências e registros de abertura do ciclo anterior serão excluídos.\n\nEsta operação não pode ser desfeita.`))return;
   $('publish').disabled=true;warn('');$('import-status').textContent='Publicando ciclo no Supabase...';
   try{
    const {data,error}=await supabaseClient.rpc('p2_publicar_ciclo',{p_vencimento:date,p_clientes:rows});
