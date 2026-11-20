@@ -5,12 +5,15 @@ const money=n=>Number(n||0).toLocaleString('pt-BR',{style:'currency',currency:'B
 const num=s=>Number((s||'0').replace(/\./g,'').replace(',','.'));
 const escapeHTML=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const fullDate=s=>s&&/^\d{2}\/\d{2}\/\d{2}$/.test(s)?s.slice(0,6)+'20'+s.slice(6):s;
+const PORTFOLIO_LABELS={'XAMA1':'JE CRED.','XAMA2':'JE CRED01','XAMA3':'JE CRED02','XAMA4':'JE CRED03','XAMA6':'JE CRED04'};
+const normalizePortfolio=s=>{const value=String(s||'').trim().replace(/\s+/g,' ').toUpperCase();return PORTFOLIO_LABELS[value]||value;};
+const legacyPortfolio=s=>Object.keys(PORTFOLIO_LABELS).find(k=>PORTFOLIO_LABELS[k]===normalizePortfolio(s))||'';
 const normalizedPhone=s=>{let p=String(s||'').replace(/\D/g,'');if(p.length===11||p.length===10)p='55'+p;return /^55\d{10,11}$/.test(p)?p:''};
 
 function lineText(items){const lines=[];for(const it of items){if(!it.str||!it.str.trim())continue;const y=Math.round((it.transform?.[5]||0)*2)/2;let l=lines.find(x=>Math.abs(x.y-y)<2);if(!l){l={y,items:[]};lines.push(l)}l.items.push({x:it.transform?.[4]||0,text:it.str})}return lines.sort((a,b)=>b.y-a.y).map(l=>l.items.sort((a,b)=>a.x-b.x).map(i=>i.text).join(' ').replace(/\s+/g,' ').trim()).join('\n')}
 function parseReport(text){
  const dates=[...text.matchAll(/Vencimento:\s*(\d{2}\/\d{2}\/\d{4})\s+a\s+(\d{2}\/\d{2}\/\d{4})/g)];
- const agent=(text.match(/Agente de Cr[eé]dito:\s*(\S+)/i)||[])[1]||'NÃO IDENTIFICADO';
+ const agent=(text.match(/Agente de Cr[eé]dito:\s*([^\n]+)/i)||[])[1]?.trim()||'NÃO IDENTIFICADO';
  const sumText=text.slice(text.lastIndexOf('Resumo Geral'));
  const expectedClients=Number((sumText.match(/Quantidade de Clientes\s+(\d+)/)||[])[1]||0);
  const expectedDocs=Number((sumText.match(/Quantidade de Documentos\s+(\d+)/)||[])[1]||0);
@@ -49,7 +52,7 @@ const Preventiva=(()=>{
  const role=()=>profile?.papel;
  function render(){
   const cartera=$('filter-carteira').value,filter=$('filter-status').value,q=$('search').value.toLocaleLowerCase('pt-BR');
-  const base=clients.filter(c=>cartera==='all'||c.carteira===cartera);
+  const base=clients.filter(c=>cartera==='all'||legacyPortfolio(c.carteira)===legacyPortfolio(cartera));
   const shown=base.filter(c=>(c.nome+' '+c.cidade+' '+c.codigo).toLocaleLowerCase('pt-BR').includes(q)).filter(c=>filter==='all'||(filter==='opened'?!!c.aberto_em:filter==='pending'?!c.aberto_em:!c.telefone));
   $('n-clients').textContent=base.length;$('n-opened').textContent=base.filter(c=>c.aberto_em).length;
   $('n-pending').textContent=base.filter(c=>!c.aberto_em).length;$('n-missing').textContent=base.filter(c=>!c.telefone).length;
@@ -57,7 +60,7 @@ const Preventiva=(()=>{
   $('cycle-label').textContent=cycle?'Vencimento '+dateBR(cycle.vencimento):'Nenhum ciclo publicado';
   $('cycle-updated').textContent=cycle?'Publicado em '+new Date(cycle.publicado_em).toLocaleString('pt-BR'):'Aguardando publicação';
   $('list-meta').textContent=base.length+' clientes visíveis • '+shown.length+' na busca';
-  $('list').innerHTML=shown.length?shown.map(c=>`<article class="client"><div><h4>${escapeHTML(c.nome)}</h4><div class="detail">${escapeHTML(c.carteira)} · ${escapeHTML(c.cidade||'Cidade não informada')} · Venc. ${escapeHTML(c.vencimento)} · ${money(c.valor)} · ${c.documentos} documento(s)</div><div class="detail">${c.telefone?'+'+escapeHTML(c.telefone):'Sem telefone'} · <span class="tag ${c.aberto_em?'opened':''}">${c.aberto_em?'WhatsApp aberto em '+new Date(c.aberto_em).toLocaleString('pt-BR'):'Sem ação'}</span></div></div><button class="wa" data-open="${c.id}" ${!c.telefone?'disabled':''}>Abrir WhatsApp ↗</button></article>`).join(''):'<p class="empty">Nenhum cliente encontrado.</p>';
+  $('list').innerHTML=shown.length?shown.map(c=>`<article class="client"><div><h4>${escapeHTML(c.nome)}</h4><div class="detail">${escapeHTML(normalizePortfolio(c.carteira))} · ${escapeHTML(c.cidade||'Cidade não informada')} · Venc. ${escapeHTML(c.vencimento)} · ${money(c.valor)} · ${c.documentos} documento(s)</div><div class="detail">${c.telefone?'+'+escapeHTML(c.telefone):'Sem telefone'} · <span class="tag ${c.aberto_em?'opened':''}">${c.aberto_em?'WhatsApp aberto em '+new Date(c.aberto_em).toLocaleString('pt-BR'):'Sem ação'}</span></div></div><button class="wa" data-open="${c.id}" ${!c.telefone?'disabled':''}>Abrir WhatsApp ↗</button></article>`).join(''):'<p class="empty">Nenhum cliente encontrado.</p>';
   $('list').querySelectorAll('[data-open]').forEach(b=>b.addEventListener('click',()=>openWhatsApp(b.dataset.open)));
  }
  async function refresh(){
@@ -94,8 +97,9 @@ const Preventiva=(()=>{
    if(!report.expectedClients||!report.expectedDocs||!report.expectedAmount)throw Error('Resumo Geral não encontrado ou incompleto.');
    if(report.clients.length!==report.expectedClients||docs!==report.expectedDocs||Math.abs(amount-report.expectedAmount)>0.02)
     throw Error(`Conferência divergente. Extraído: ${report.clients.length} clientes, ${docs} documentos, ${money(amount)}. PDF: ${report.expectedClients} clientes, ${report.expectedDocs} documentos, ${money(report.expectedAmount)}. Nenhum dado foi substituído.`);
-   const agentCode=(report.agent.match(/XAMA\d+/i)||[])[0]?.toUpperCase();
-   if(agentCode&&agentCode!==carteira)throw Error('O PDF identifica '+agentCode+', mas foi selecionada '+carteira);
+   const agentCode=legacyPortfolio(report.agent);
+   if(!agentCode)throw Error('O PDF não identifica uma carteira JE CRED válida. Identificação encontrada: '+report.agent+'. Nenhum dado foi substituído.');
+   if(agentCode!==carteira)throw Error('O PDF identifica '+normalizePortfolio(report.agent)+', mas foi selecionada '+normalizePortfolio(carteira)+'. Nenhum dado foi substituído.');
    const due=$('cycle-date').value;if(!due||![1,5,10,15,20].includes(Number(due.slice(8,10))))throw Error('Selecione a data de vencimento (dias 1, 5, 10, 15 ou 20).');
    const dates=report.clients.flatMap(c=>c.docs.map(d=>d.due));
    const dueBR=dateBR(due);
@@ -106,13 +110,13 @@ const Preventiva=(()=>{
  }
  function renderStaged(){
   const date=$('cycle-date').value;
-  $('staged-list').innerHTML=codes.map(code=>{const s=staged.get(code);return `<span>${code}: ${s&&s.due===date?s.clients.length+' clientes ✓':'aguardando PDF'}</span>`}).join('');
+  $('staged-list').innerHTML=codes.map(code=>{const s=staged.get(code);return `<span>${normalizePortfolio(code)}: ${s&&s.due===date?s.clients.length+' clientes ✓':'aguardando PDF'}</span>`}).join('');
   $('publish').disabled=!(role()==='admin'&&Boolean(date)&&codes.some(c=>staged.get(c)?.due===date&&staged.get(c)?.clients?.length>0));
  }
  async function publish(){
   if(role()!=='admin'||$('publish').disabled)return;
   const date=$('cycle-date').value,selected=codes.filter(c=>staged.get(c)?.due===date&&staged.get(c)?.clients?.length>0),rows=selected.flatMap(c=>staged.get(c).clients);
-  if(!confirm(`PUBLICAR ${dateBR(date)}?\n\n${rows.length} clientes de ${selected.length} carteira(s): ${selected.join(', ')}.\nTODOS os clientes, pendências e registros de abertura do ciclo anterior serão excluídos.\n\nEsta operação não pode ser desfeita.`))return;
+  if(!confirm(`PUBLICAR ${dateBR(date)}?\n\n${rows.length} clientes de ${selected.length} carteira(s): ${selected.map(normalizePortfolio).join(', ')}.\nTODOS os clientes, pendências e registros de abertura do ciclo anterior serão excluídos.\n\nEsta operação não pode ser desfeita.`))return;
   $('publish').disabled=true;warn('');$('import-status').textContent='Publicando ciclo no Supabase...';
   try{
    const {data,error}=await supabaseClient.rpc('p2_publicar_ciclo',{p_vencimento:date,p_clientes:rows});
@@ -136,9 +140,9 @@ const Preventiva=(()=>{
   template=localStorage.getItem('p2_template')||DEFAULT;
   setup();$('template').value=template;
   $('user-label').textContent=profile.nome;
-  $('role-label').textContent=profile.papel==='admin'?'Administrador':'Agente · '+profile.carteira;
+  $('role-label').textContent=profile.papel==='admin'?'Administrador':'Agente · '+normalizePortfolio(profile.carteira);
   $('admin-section').hidden=role()!=='admin';$('filter-carteira').hidden=role()!=='admin';
-  $('filter-carteira').value=role()==='admin'?'all':profile.carteira;
+  $('filter-carteira').value=role()==='admin'?'all':legacyPortfolio(profile.carteira)||profile.carteira;
   await refresh();
  }
  function clear(){profile=null;cycle=null;clients=[];staged.clear();epoch++;}
