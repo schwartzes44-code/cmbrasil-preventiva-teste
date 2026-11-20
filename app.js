@@ -102,7 +102,7 @@ const Preventiva=(()=>{
    if(agentCode!==carteira)throw Error('O PDF identifica '+normalizePortfolio(report.agent)+', mas foi selecionada '+normalizePortfolio(carteira)+'. Nenhum dado foi substituído.');
    const dates=report.clients.flatMap(c=>c.docs.map(d=>d.due));
    const uniqueDates=[...new Set(dates)];
-   if(uniqueDates.length!==1||!/^\\d{2}\\/\\d{2}\\/\\d{4}$/.test(uniqueDates[0]||''))throw Error('O PDF contém vencimentos diferentes ou inválidos ('+uniqueDates.join(', ')+'). Para preservar a segurança da publicação, importe um relatório com uma única data de vencimento.');
+   if(uniqueDates.length!==1||!/^\d{2}\/\d{2}\/\d{4}$/.test(uniqueDates[0]||''))throw Error('O PDF contém vencimentos diferentes ou inválidos ('+uniqueDates.join(', ')+'). Para preservar a segurança da publicação, importe um relatório com uma única data de vencimento.');
    const [day,month,year]=uniqueDates[0].split('/').map(Number);
    const parsedDate=new Date(Date.UTC(year,month-1,day));
    if(parsedDate.getUTCFullYear()!==year||parsedDate.getUTCMonth()!==month-1||parsedDate.getUTCDate()!==day)throw Error('Data de vencimento inválida no PDF.');
