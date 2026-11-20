@@ -100,12 +100,18 @@ const Preventiva=(()=>{
    const agentCode=legacyPortfolio(report.agent);
    if(!agentCode)throw Error('O PDF não identifica uma carteira JE CRED válida. Identificação encontrada: '+report.agent+'. Nenhum dado foi substituído.');
    if(agentCode!==carteira)throw Error('O PDF identifica '+normalizePortfolio(report.agent)+', mas foi selecionada '+normalizePortfolio(carteira)+'. Nenhum dado foi substituído.');
-   const due=$('cycle-date').value;if(!due||![1,5,10,15,20].includes(Number(due.slice(8,10))))throw Error('Selecione a data de vencimento (dias 1, 5, 10, 15 ou 20).');
    const dates=report.clients.flatMap(c=>c.docs.map(d=>d.due));
-   const dueBR=dateBR(due);
-   if(dates.some(d=>d!==dueBR))throw Error('O PDF contém vencimentos diferentes de '+dueBR+'. Confirme a data e use o relatório do ciclo correto.');
+   const uniqueDates=[...new Set(dates)];
+   if(uniqueDates.length!==1||!/^\\d{2}\\/\\d{2}\\/\\d{4}$/.test(uniqueDates[0]||''))throw Error('O PDF contém vencimentos diferentes ou inválidos ('+uniqueDates.join(', ')+'). Para preservar a segurança da publicação, importe um relatório com uma única data de vencimento.');
+   const [day,month,year]=uniqueDates[0].split('/').map(Number);
+   const parsedDate=new Date(Date.UTC(year,month-1,day));
+   if(parsedDate.getUTCFullYear()!==year||parsedDate.getUTCMonth()!==month-1||parsedDate.getUTCDate()!==day)throw Error('Data de vencimento inválida no PDF.');
+   const due=String(year)+'-'+String(month).padStart(2,'0')+'-'+String(day).padStart(2,'0');
+   const selectedDate=$('cycle-date').value;
+   if(selectedDate&&selectedDate!==due&&[...staged.values()].some(item=>item.due===selectedDate))throw Error('Já existem PDFs validados para '+dateBR(selectedDate)+'. Publique ou limpe a seleção antes de importar um vencimento diferente ('+uniqueDates[0]+').');
+   $('cycle-date').value=due;
    staged.set(carteira,{file:file.name,clients:report.clients.map(c=>({carteira,codigo:c.code,nome:c.name,cidade:c.city||'',telefone:c.phone||'',vencimento:c.due,valor:c.amount,documentos:c.docs.length})),docs,amount,due});
-   $('import-status').textContent='PDF validado: '+file.name+' · '+report.expectedClients+' clientes.';renderStaged();
+   $('import-status').textContent='PDF validado: '+file.name+' · vencimento '+uniqueDates[0]+' · '+report.expectedClients+' clientes.';renderStaged();
   }catch(e){$('import-status').textContent='Importação não validada.';warn(e.message);}finally{$('pdf').value='';}
  }
  function renderStaged(){
